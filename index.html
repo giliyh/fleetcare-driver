@@ -52,6 +52,9 @@
   .thumb img { width: 100%; height: 92px; object-fit: cover; border-radius: 12px; border: 1px solid var(--line); display: block; }
   .thumb button { position: absolute; top: -8px; inset-inline-end: -8px; width: 28px; height: 28px; border: 0; border-radius: 50%; background: var(--bad); color: #fff; font-weight: 900; font-size: 16px; line-height: 1; cursor: pointer; }
 
+  .badge { position: absolute; bottom: 6px; inset-inline-start: 6px; min-width: 24px; height: 24px; border-radius: 12px; display: grid; place-items: center; font-size: 13px; font-weight: 900; color: #fff; padding: 0 6px; }
+  .badge.ok { background: var(--good); }
+  .badge.up, .badge.wait { background: #0b1f45cc; }
   .track { height: 12px; border-radius: 12px; background: #e8eff8; overflow: hidden; }
   .track i { display: block; height: 100%; width: 0; background: var(--blue); transition: width .4s ease; }
   .ptext { text-align: center; font-weight: 800; color: var(--muted); }
@@ -169,7 +172,7 @@
     { key: 'air', label: 'לחץ אוויר ונורות בקרה', max: 1, hint: 'קרבו לשעונים עד שהמספרים ברורים' },
     { key: 'odometer', label: 'קילומטרז מלוח שעונים', max: 1, hint: 'קרבו למונה עד שהמספר ברור' },
   ];
-  const DRAFT_KEY = 'fleetcare-driver-web-draft-v1';
+  const DRAFT_KEY = 'fleetcare-driver-web-draft-v2';
   const FIELDS = ['vehicle', 'defects', 'notes', 'km', 'washDate'];
   const UA = navigator.userAgent || '';
   const IN_APP = /; wv\)|WhatsApp|FBAN|FBAV|Instagram|Line\//i.test(UA);
@@ -178,8 +181,12 @@
     '#Intent;scheme=https;package=com.android.chrome;S.browser_fallback_url=' + encodeURIComponent(location.href) + ';end';
 
   const $ = (id) => document.getElementById(id);
-  const state = { driver: null, photos: [], vehicles: [], clientId: '' };
+  // photos: { n, slot, category, thumb, base64|null, status: 'pending' | 'uploading' | 'done' }
+  // A photo is uploaded right after it's taken and its full image is dropped from memory, so the
+  // page's memory stays flat no matter how many photos are taken.
+  const state = { driver: null, photos: [], vehicles: [], clientId: '', seq: 0 };
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const inspectionId = () => 'DRV-' + state.clientId;
 
   // ---------- toast ----------
   let toastTimer = null;
@@ -189,11 +196,10 @@
     t.className = 'toast' + (isErr ? ' err' : '');
     t.hidden = false;
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => { t.hidden = true; }, isErr ? 5000 : 3200);
+    toastTimer = setTimeout(() => { t.hidden = true; }, isErr ? 5000 : 3000);
   }
 
   // ---------- server ----------
-  // fetch POST with a text/plain body = a "simple" CORS request (no preflight); Apps Script answers JSON.
   async function api(action, data, timeoutMs) {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), timeoutMs || 45000);
@@ -212,7 +218,6 @@
       clearTimeout(timer);
     }
   }
-  // Retry network failures (never retry a clear server "no", e.g. wrong employee number).
   async function apiRetry(action, data, tries) {
     let last;
     for (let i = 0; i < (tries || 3); i++) {
@@ -221,19 +226,27 @@
     throw last;
   }
 
-  // ---------- draft (survives any reload) ----------
+  // ---------- draft (small: uploaded photos keep only their tiny preview) ----------
   function saveDraft() {
     if (!state.driver) return;
     const fields = {};
     FIELDS.forEach((id) => { fields[id] = $(id).value; });
-    const draft = { driver: state.driver, vehicles: state.vehicles, clientId: state.clientId, fields, photos: state.photos, savedAt: Date.now() };
+    const photos = state.photos.map((p) => ({
+      n: p.n, slot: p.slot, category: p.category, thumb: p.thumb,
+      status: p.status === 'done' ? 'done' : 'pending',
+      base64: p.status === 'done' ? null : p.base64,
+    }));
+    const draft = { driver: state.driver, vehicles: state.vehicles, clientId: state.clientId, seq: state.seq, fields, photos, savedAt: Date.now() };
     try { localStorage.setItem(DRAFT_KEY, JSON.stringify(draft)); }
-    catch (e) { try { localStorage.setItem(DRAFT_KEY, JSON.stringify(Object.assign({}, draft, { photos: [] }))); } catch (e2) { /* no storage */ } }
+    catch (e) {
+      // Storage full (only possible with several un-uploaded photos): keep everything but their full images.
+      try { localStorage.setItem(DRAFT_KEY, JSON.stringify(Object.assign({}, draft, { photos: photos.filter((p) => p.status === 'done') }))); } catch (e2) { /* no storage */ }
+    }
   }
   function loadDraft() {
     try {
       const d = JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null');
-      if (!d || !d.driver || Date.now() - (d.savedAt || 0) > 24 * 3600 * 1000) return null;
+      if (!d || !d.driver || !d.clientId || Date.now() - (d.savedAt || 0) > 24 * 3600 * 1000) return null;
       return d;
     } catch (e) { return null; }
   }
@@ -257,6 +270,7 @@
       FIELDS.forEach((id) => { $(id).value = ''; });
       if (state.driver.vehicle) $('vehicle').value = state.driver.vehicle;
       state.photos = [];
+      state.seq = 0;
       state.clientId = newClientId();
     }
     fillVehicles();
@@ -292,12 +306,15 @@
 
   // ---------- photo slots ----------
   const countIn = (key) => state.photos.filter((p) => p.slot === key).length;
+  const BADGE = { done: '<span class="badge ok">✓</span>', uploading: '<span class="badge up">⏳</span>', pending: '<span class="badge wait">⏳</span>' };
   function renderSlots() {
     $('slots').innerHTML = SLOTS.map((s) => {
-      const mine = state.photos.map((p, i) => ({ p, i })).filter((x) => x.p.slot === s.key);
+      const mine = state.photos.filter((p) => p.slot === s.key);
       const full = mine.length >= s.max;
-      const thumbs = mine.map((x) =>
-        '<div class="thumb"><img src="' + (x.p.thumb || x.p.base64) + '" alt=""><button type="button" data-remove="' + x.i + '" aria-label="מחיקת תמונה">×</button></div>').join('');
+      const thumbs = mine.map((p) =>
+        '<div class="thumb"><img src="' + p.thumb + '" alt="">' + (BADGE[p.status] || '') +
+        (p.status === 'uploading' ? '' : '<button type="button" data-remove="' + p.n + '" aria-label="מחיקת תמונה">×</button>') +
+        '</div>').join('');
       return '<div class="slot' + (full ? ' done' : '') + '">' +
         '<div class="slot-head"><strong>' + s.label + '</strong><span class="slot-count">' + mine.length + '/' + s.max + (full ? ' ✓' : '') + '</span></div>' +
         (full ? '' : '<button type="button" class="btn primary wide" data-shoot="' + s.key + '">📷 צלם</button>') +
@@ -309,13 +326,24 @@
     const shoot = e.target.closest('[data-shoot]');
     if (shoot) return openCamera(shoot.dataset.shoot);
     const rm = e.target.closest('[data-remove]');
-    if (rm) {
-      state.photos.splice(Number(rm.dataset.remove), 1);
-      renderSlots(); saveDraft();
-    }
+    if (rm) removePhoto(Number(rm.dataset.remove));
   });
 
-  // Encode a drawable (video frame / bitmap / image) to the upload JPEG + a small preview.
+  async function removePhoto(n) {
+    const p = state.photos.find((x) => x.n === n);
+    if (!p || p.status === 'uploading') return;
+    if (p.status === 'done') {
+      try {
+        await apiRetry('unphoto', { inspectionId: inspectionId(), employeeId: state.driver.id, password: state.driver.id, index: n - 1 });
+      } catch (e) {
+        return toast('לא הצלחנו למחוק את התמונה: ' + e.message, true);
+      }
+    }
+    state.photos = state.photos.filter((x) => x.n !== n);
+    renderSlots(); saveDraft();
+  }
+
+  // Encode a drawable to the upload JPEG + a tiny preview.
   function encode(source, w, h) {
     const scale = Math.min(1, MAX_DIM / Math.max(w, h));
     const W = Math.max(1, Math.round(w * scale)), H = Math.max(1, Math.round(h * scale));
@@ -323,7 +351,7 @@
     c.width = W; c.height = H;
     c.getContext('2d').drawImage(source, 0, 0, W, H);
     const base64 = c.toDataURL('image/jpeg', 0.6);
-    const ts = 240 / Math.max(W, H);
+    const ts = 160 / Math.max(W, H);
     const t = document.createElement('canvas');
     t.width = Math.max(1, Math.round(W * ts)); t.height = Math.max(1, Math.round(H * ts));
     t.getContext('2d').drawImage(c, 0, 0, t.width, t.height);
@@ -331,10 +359,36 @@
     c.width = c.height = 0; t.width = t.height = 0;
     return { base64, thumb };
   }
-  function addPhoto(slot, enc) {
-    state.photos.push({ slot: slot.key, category: slot.label, base64: enc.base64, thumb: enc.thumb, type: 'image/jpeg', name: 'photo.jpg' });
+
+  // Uploads run one at a time in the background, right after each photo.
+  let uploadChain = Promise.resolve();
+  function queueUpload(p) {
+    uploadChain = uploadChain.then(() => uploadOne(p)).catch(() => {});
+    return uploadChain;
+  }
+  async function uploadOne(p) {
+    if (!state.driver || p.status === 'done' || !p.base64 || !state.photos.includes(p)) return;
+    p.status = 'uploading';
+    renderSlots();
+    try {
+      await apiRetry('photo', {
+        inspectionId: inspectionId(), employeeId: state.driver.id, password: state.driver.id, index: p.n - 1,
+        photo: { base64: p.base64, type: 'image/jpeg', name: 'photo.jpg', category: p.category },
+      }, 3);
+      p.status = 'done';
+      p.base64 = null; // free the full image from the phone's memory
+    } catch (e) {
+      p.status = 'pending'; // kept on the phone; retried on send
+    }
     renderSlots();
     saveDraft();
+  }
+  function addPhoto(slot, enc) {
+    const p = { n: ++state.seq, slot: slot.key, category: slot.label, thumb: enc.thumb, base64: enc.base64, status: 'pending' };
+    state.photos.push(p);
+    renderSlots();
+    saveDraft();
+    queueUpload(p);
   }
 
   // ---------- camera ----------
@@ -343,7 +397,9 @@
   function stopStream() {
     if (cam.stream) cam.stream.getTracks().forEach((t) => t.stop());
     cam.stream = null;
-    $('camVideo').srcObject = null;
+    const v = $('camVideo');
+    try { v.pause(); } catch (e) { /* ignore */ }
+    v.srcObject = null;
   }
   function closeCamera() {
     stopStream();
@@ -374,11 +430,12 @@
       return camFail(IN_APP ? 'כאן בתוך וואטסאפ המצלמה לא זמינה. לחצו "פתיחה ב‑Chrome", או צלמו עם מצלמת הטלפון.' : 'המצלמה לא זמינה בדפדפן הזה. אפשר לצלם עם מצלמת הטלפון.');
     }
     try {
+      // 1280x720 is enough: photos are saved at up to 1200px anyway, and a smaller stream uses far less memory.
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: false,
-        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
       });
-      if ($('cam').hidden) { stream.getTracks().forEach((t) => t.stop()); return; } // closed while waiting
+      if ($('cam').hidden) { stream.getTracks().forEach((t) => t.stop()); return; }
       cam.stream = stream;
       const track = stream.getVideoTracks()[0];
       try { await track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }); } catch (e) { /* optional */ }
@@ -415,7 +472,6 @@
       toast('✓ נשמר. צלמו את התמונה הבאה');
     }
   }
-  // Fallback when the in-page camera isn't available: the phone's camera app.
   async function fromFile(file) {
     if (!file) return;
     try {
@@ -445,37 +501,44 @@
 
   // ---------- submit ----------
   function setProgress(pct, text) { $('progressFill').style.width = pct + '%'; $('progressText').textContent = text; }
+  let sending = false;
   async function submit() {
+    if (sending) return;
     if (!state.driver) return logout();
     const vehicle = $('vehicle').value.replace(/[\s-]/g, '');
     const digits = vehicle.replace(/\D/g, '');
     if (!state.vehicles.includes(vehicle) && (digits.length < 5 || digits.length > 9)) return toast('בחרו מספר רכב מהרשימה', true);
+    sending = true;
     const btn = $('submitBtn');
     btn.disabled = true; btn.textContent = 'שולח...';
     $('progress').hidden = false;
     const id = state.driver.id;
-    const photos = state.photos.slice();
     try {
-      setProgress(5, 'פותח דיווח...');
-      const begin = await apiRetry('begin', { payload: {
+      // 1) make sure every photo is on the server (most already are)
+      setProgress(10, 'מוודא שכל התמונות עלו...');
+      await uploadChain;
+      const left = state.photos.filter((p) => p.status !== 'done');
+      for (let i = 0; i < left.length; i++) {
+        setProgress(15 + Math.round((i / left.length) * 60), 'מעלה תמונה ' + (i + 1) + ' מתוך ' + left.length + '...');
+        await uploadOne(left[i]);
+        if (left[i].status !== 'done') throw new Error('תמונה לא עלתה — בדקו קליטה.');
+      }
+      // 2) create the report (idempotent per clientId)
+      setProgress(85, 'שולח את הדיווח...');
+      await apiRetry('begin', { payload: {
         employeeId: id, password: id, clientId: state.clientId, vehicle,
         notes: $('notes').value, defects: $('defects').value, km: $('km').value.trim(), washDate: $('washDate').value,
-        photoCount: photos.length,
+        photoCount: state.photos.length,
       } });
-      for (let i = 0; i < photos.length; i++) {
-        setProgress(Math.round(10 + (i / photos.length) * 85), 'מעלה תמונה ' + (i + 1) + ' מתוך ' + photos.length + '...');
-        const p = photos[i];
-        await apiRetry('photo', { inspectionId: begin.inspectionId, employeeId: id, password: id, index: i,
-          photo: { base64: p.base64, type: p.type, name: p.name, category: p.category } }, 4);
-      }
       setProgress(100, 'הושלם!');
       clearDraft();
-      $('doneMsg').textContent = state.driver.name + ' · רכב ' + vehicle + ' · ' + (photos.length ? photos.length + ' תמונות' : 'ללא תמונות');
+      $('doneMsg').textContent = state.driver.name + ' · רכב ' + vehicle + ' · ' + (state.photos.length ? state.photos.length + ' תמונות' : 'ללא תמונות');
       setTimeout(() => { $('progress').hidden = true; setProgress(0, ''); show('done'); }, 400);
     } catch (e) {
       $('progress').hidden = true;
-      toast(e.message + ' הדיווח נשמר בטלפון — אפשר ללחוץ שוב "שליחה".', true);
+      toast(e.message + ' הדיווח שמור בטלפון — אפשר ללחוץ שוב "שליחה".', true);
     } finally {
+      sending = false;
       btn.disabled = false; btn.textContent = 'שליחת הדיווח';
     }
   }
@@ -493,7 +556,6 @@
   $('openChrome').href = CHROME_INTENT;
   $('camChrome').href = CHROME_INTENT;
   $('inAppNotice').hidden = !(IN_APP && IS_ANDROID);
-  // Release the camera whenever the page is hidden (screen off, app switch).
   document.addEventListener('visibilitychange', () => { if (document.hidden && !$('cam').hidden) closeCamera(); });
 
   // Resume a saved session (e.g. after the phone reloaded the page).
@@ -501,12 +563,16 @@
   if (d) {
     state.driver = d.driver;
     state.vehicles = Array.isArray(d.vehicles) ? d.vehicles : [];
-    state.photos = Array.isArray(d.photos) ? d.photos : [];
-    state.clientId = d.clientId || newClientId();
+    state.clientId = d.clientId;
+    state.seq = Number(d.seq) || 0;
+    state.photos = (Array.isArray(d.photos) ? d.photos : [])
+      .filter((p) => p.status === 'done' || p.base64)
+      .map((p) => Object.assign({}, p, { status: p.status === 'done' ? 'done' : 'pending' }));
+    state.seq = Math.max(state.seq, ...state.photos.map((p) => p.n || 0), 0);
     FIELDS.forEach((id) => { if (d.fields && d.fields[id] != null) $(id).value = d.fields[id]; });
     startForm(false);
     if (state.photos.length) toast('המשכנו מאיפה שעצרת ✓ ' + state.photos.length + ' תמונות נשמרו');
-    // refresh the live vehicle list quietly
+    state.photos.filter((p) => p.status !== 'done').forEach(queueUpload);
     api('login', { employeeId: d.driver.id, password: d.driver.id }).then((r) => {
       if (Array.isArray(r.vehicles) && r.vehicles.length) { state.vehicles = r.vehicles; fillVehicles(); saveDraft(); }
     }).catch(() => {});
@@ -514,6 +580,8 @@
     show('login');
   }
 
+  // Test hook for automated checks.
+  window.__fleet = { state };
 })();
 </script>
 </body>
