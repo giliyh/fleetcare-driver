@@ -391,7 +391,7 @@
       const denied = e && (e.name === 'NotAllowedError' || e.name === 'SecurityError');
       camFail(denied
         ? (IN_APP ? 'בתוך וואטסאפ אין גישה למצלמה. לחצו "פתיחה ב‑Chrome", או צלמו עם מצלמת הטלפון.'
-                  : 'לא אושרה גישה למצלמה. לחצו על ✕, ובפעם הבאה אשרו "אפשר". אפשר גם לצלם עם מצלמת הטלפון.')
+                  : 'הגישה למצלמה נחסמה בטלפון. אין בעיה — צלמו עם מצלמת הטלפון בכפתור למטה.')
         : 'לא הצלחנו לפתוח את המצלמה. אפשר לצלם עם מצלמת הטלפון.');
     }
   }
@@ -514,8 +514,6 @@
     show('login');
   }
 
-  // Test hooks (used only by automated checks).
-  window.__fleet = { state, encode, addPhoto, SLOTS, api };
 })();
 </script>
 </body>
