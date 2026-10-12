@@ -1,0 +1,522 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>דיווח רכב FleetCare</title>
+<meta name="theme-color" content="#0b4edb">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-180.png">
+<style>
+  :root {
+    --blue: #1769ff; --deep: #0b1f45; --bg: #f4f7fb; --card: #ffffff; --muted: #64748b;
+    --line: #dfe7f1; --good: #16a34a; --bad: #dc2626; --signal: #ffc83d;
+    font-family: "Assistant", system-ui, "Segoe UI", Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { margin: 0; }
+  body { background: linear-gradient(180deg, #eaf2ff 0, var(--bg) 260px); color: var(--deep); -webkit-tap-highlight-color: transparent; }
+  button, input, textarea { font: inherit; }
+  .app { max-width: 520px; margin: 0 auto; padding: calc(12px + env(safe-area-inset-top)) 14px calc(28px + env(safe-area-inset-bottom)); display: grid; gap: 14px; }
+  .hero { background: linear-gradient(135deg, #0b4edb, #13a3ff); color: #fff; border-radius: 24px; padding: 20px; box-shadow: 0 16px 36px #1769ff30; }
+  .hero small { opacity: .9; font-weight: 700; }
+  .hero h1 { margin: 4px 0 6px; font-size: clamp(28px, 8vw, 38px); }
+  .hero p { margin: 0; line-height: 1.5; }
+  .freq { display: inline-block; margin-top: 10px; background: #ffffff26; border-radius: 12px; padding: 8px 12px; font-weight: 800; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 22px; padding: 18px; box-shadow: 0 10px 26px #203a5b0d; display: grid; gap: 10px; }
+  .row { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+  h2 { margin: 0; font-size: 22px; }
+  label { font-weight: 800; font-size: 15px; }
+  input, textarea { width: 100%; border: 1px solid var(--line); border-radius: 14px; padding: 14px; background: #fff; font-size: 16px; color: var(--deep); }
+  input:focus, textarea:focus { outline: none; border-color: var(--blue); box-shadow: 0 0 0 3px #1769ff26; }
+  textarea { min-height: 90px; resize: vertical; }
+  .muted { color: var(--muted); margin: 0; font-size: 14px; }
+  .btn { border: 0; border-radius: 16px; padding: 15px 18px; font-weight: 800; font-size: 17px; cursor: pointer; display: inline-flex; justify-content: center; align-items: center; gap: 8px; }
+  .btn.primary { background: var(--blue); color: #fff; box-shadow: 0 12px 26px #1769ff33; }
+  .btn.soft { background: #edf4ff; color: var(--blue); padding: 10px 14px; font-size: 15px; }
+  .btn.wide { width: 100%; }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .btn:focus-visible { outline: 3px solid var(--signal); outline-offset: 2px; }
+  .notice { background: #fff7ed; border: 1px solid #fed7aa; color: #9a3412; border-radius: 16px; padding: 12px 14px; display: grid; gap: 8px; font-weight: 700; }
+  .notice .btn { background: var(--signal); color: #1a1300; }
+
+  .slot { border: 1px solid var(--line); border-radius: 18px; padding: 12px; background: linear-gradient(180deg, #fff, #f7fbff); display: grid; gap: 10px; }
+  .slot.done { border-color: #bbf7d0; background: linear-gradient(180deg, #fff, #f0fdf4); }
+  .slot-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .slot-count { color: var(--muted); font-weight: 800; font-size: 14px; white-space: nowrap; }
+  .slot.done .slot-count { color: var(--good); }
+  .thumbs { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 10px; }
+  .thumb { position: relative; }
+  .thumb img { width: 100%; height: 92px; object-fit: cover; border-radius: 12px; border: 1px solid var(--line); display: block; }
+  .thumb button { position: absolute; top: -8px; inset-inline-end: -8px; width: 28px; height: 28px; border: 0; border-radius: 50%; background: var(--bad); color: #fff; font-weight: 900; font-size: 16px; line-height: 1; cursor: pointer; }
+
+  .track { height: 12px; border-radius: 12px; background: #e8eff8; overflow: hidden; }
+  .track i { display: block; height: 100%; width: 0; background: var(--blue); transition: width .4s ease; }
+  .ptext { text-align: center; font-weight: 800; color: var(--muted); }
+  .done-card { text-align: center; }
+  .done-card .big { font-size: 64px; line-height: 1; color: var(--good); }
+
+  .toast { position: fixed; top: calc(14px + env(safe-area-inset-top)); left: 14px; right: 14px; max-width: 520px; margin: auto; background: #061833; color: #fff; border-radius: 16px; padding: 14px 16px; z-index: 60; font-weight: 700; box-shadow: 0 16px 36px #0004; }
+  .toast.err { background: #b91c1c; }
+
+  /* ---------- in-page camera ---------- */
+  .cam { position: fixed; inset: 0; z-index: 50; background: #000; display: grid; grid-template-rows: auto 1fr auto; color: #fff; }
+  .cam video { width: 100%; height: 100%; object-fit: cover; grid-row: 1 / -1; grid-column: 1; }
+  .cam-top, .cam-bottom { grid-column: 1; z-index: 1; padding: 12px 14px; }
+  .cam-top { grid-row: 1; display: flex; justify-content: space-between; align-items: center; gap: 10px; padding-top: calc(12px + env(safe-area-inset-top)); background: linear-gradient(#000b, #0000); }
+  .cam-title { font-weight: 800; font-size: 18px; }
+  .cam-count { font-weight: 800; background: #ffffff26; border-radius: 999px; padding: 4px 12px; }
+  .cam-close { border: 0; background: #ffffff33; color: #fff; width: 44px; height: 44px; border-radius: 50%; font-size: 20px; font-weight: 900; cursor: pointer; }
+  .cam-mid { grid-row: 2; grid-column: 1; z-index: 1; display: grid; place-items: center; padding: 20px; text-align: center; }
+  .cam-hint { background: #000a; border-radius: 14px; padding: 10px 14px; font-weight: 700; max-width: 360px; }
+  .cam-bottom { grid-row: 3; display: grid; justify-items: center; gap: 10px; padding-bottom: calc(22px + env(safe-area-inset-bottom)); background: linear-gradient(#0000, #000b); }
+  .shutter { width: 82px; height: 82px; border-radius: 50%; border: 6px solid #fff; background: var(--signal); cursor: pointer; box-shadow: 0 0 0 4px #0006; }
+  .shutter:active { transform: scale(.94); }
+  .shutter:disabled { background: #888; }
+  .cam-msg { background: #fff; color: var(--deep); border-radius: 18px; padding: 16px; display: grid; gap: 10px; max-width: 380px; text-align: center; font-weight: 700; }
+  .cam-msg .btn { width: 100%; }
+  .flash { position: fixed; inset: 0; background: #fff; z-index: 55; pointer-events: none; animation: flash .35s ease forwards; }
+  @keyframes flash { from { opacity: .85; } to { opacity: 0; } }
+</style>
+</head>
+<body>
+  <div class="toast" id="toast" role="status" hidden></div>
+
+  <main class="app">
+    <section class="hero">
+      <small>FleetCare · דיווח נהג</small>
+      <h1>דיווח רכב</h1>
+      <p>נכנסים עם מספר העובד, בוחרים רכב, מצלמים ושולחים — הכול מגיע ישר למשרד.</p>
+      <span class="freq">🗓️ מדווחים פעמיים בחודש, מיד אחרי שטיפת הרכב.</span>
+    </section>
+
+    <div class="notice" id="inAppNotice" hidden>
+      <span>הקישור נפתח בתוך וואטסאפ. כדי שהמצלמה תעבוד הכי טוב, פתחו ב‑Chrome:</span>
+      <a class="btn" id="openChrome" href="#">פתיחה ב‑Chrome</a>
+    </div>
+
+    <section class="card" id="loginCard">
+      <h2>כניסת נהג</h2>
+      <label for="emp">מספר עובד</label>
+      <input id="emp" type="tel" inputmode="numeric" autocomplete="username" placeholder="לדוגמה 555">
+      <label for="pass">סיסמה</label>
+      <input id="pass" type="password" inputmode="numeric" autocomplete="current-password" placeholder="אותו מספר עובד">
+      <button class="btn primary wide" id="loginBtn" type="button">כניסה</button>
+      <p class="muted">המשתמש והסיסמה זהים — מספר העובד שלך.</p>
+    </section>
+
+    <section class="card" id="formCard" hidden>
+      <div class="row"><h2 id="hello">שלום</h2><button class="btn soft" id="logoutBtn" type="button">יציאה</button></div>
+      <label for="vehicle">מספר רכב</label>
+      <input id="vehicle" list="vehicleList" type="text" inputmode="numeric" autocomplete="off" placeholder="הקלד ספרות ובחר מהרשימה">
+      <datalist id="vehicleList"></datalist>
+      <label for="defects">ליקויים ברכב (אם יש)</label>
+      <textarea id="defects" placeholder="פרט ליקויים אם קיימים, אחרת השאר ריק"></textarea>
+      <label for="notes">הערות</label>
+      <textarea id="notes" placeholder="לא חובה"></textarea>
+      <div id="slots" style="display:grid; gap:12px"></div>
+      <label for="km">קילומטראז' (הקלדה ידנית)</label>
+      <input id="km" type="tel" inputmode="numeric" placeholder="לדוגמה 123456">
+      <label for="washDate">תאריך שטיפה</label>
+      <input id="washDate" type="date">
+      <div id="progress" hidden>
+        <div class="track"><i id="progressFill"></i></div>
+        <p class="ptext" id="progressText">שולח...</p>
+      </div>
+      <button class="btn primary wide" id="submitBtn" type="button">שליחת הדיווח</button>
+    </section>
+
+    <section class="card done-card" id="doneCard" hidden>
+      <div class="big">✓</div>
+      <h2>הדיווח נשלח בהצלחה</h2>
+      <p class="muted" id="doneMsg"></p>
+      <button class="btn primary wide" id="anotherBtn" type="button">דיווח נוסף</button>
+    </section>
+  </main>
+
+  <!-- In-page camera: the browser never leaves the page, so Android can't close it mid-photo. -->
+  <div class="cam" id="cam" hidden>
+    <video id="camVideo" playsinline muted autoplay></video>
+    <div class="cam-top">
+      <button class="cam-close" id="camClose" type="button" aria-label="סגירת המצלמה">✕</button>
+      <span class="cam-title" id="camTitle"></span>
+      <span class="cam-count" id="camCount"></span>
+    </div>
+    <div class="cam-mid">
+      <div class="cam-hint" id="camHint">פותח מצלמה... אם מופיעה בקשת הרשאה — לחצו <b>"אפשר"</b></div>
+      <div class="cam-msg" id="camMsg" hidden>
+        <span id="camMsgText"></span>
+        <a class="btn primary" id="camChrome" href="#" hidden>פתיחה ב‑Chrome</a>
+        <label class="btn soft" id="camFileBtn">📷 צילום עם מצלמת הטלפון
+          <input id="camFile" type="file" accept="image/*" capture="environment" hidden>
+        </label>
+      </div>
+    </div>
+    <div class="cam-bottom">
+      <button class="shutter" id="shutter" type="button" aria-label="צלם" disabled></button>
+    </div>
+  </div>
+
+<script>
+(() => {
+  const API = 'https://script.google.com/macros/s/AKfycbxttw3EqGi1bUobqfH4OXwRltpyZBm_PJn6SiEspSRrGQst7Os3oFTjHHxhZFmrnhuS/exec';
+  const MAX_DIM = 1200;
+  const SLOTS = [
+    { key: 'cabin', label: 'צילום קבינה', max: 1, hint: 'צלמו את תא הנהג מבפנים' },
+    { key: 'sides', label: 'צילום שני צדדי המשאית', max: 2, hint: 'צד אחד, ואז הצד השני' },
+    { key: 'air', label: 'לחץ אוויר ונורות בקרה', max: 1, hint: 'קרבו לשעונים עד שהמספרים ברורים' },
+    { key: 'odometer', label: 'קילומטרז מלוח שעונים', max: 1, hint: 'קרבו למונה עד שהמספר ברור' },
+  ];
+  const DRAFT_KEY = 'fleetcare-driver-web-draft-v1';
+  const FIELDS = ['vehicle', 'defects', 'notes', 'km', 'washDate'];
+  const UA = navigator.userAgent || '';
+  const IN_APP = /; wv\)|WhatsApp|FBAN|FBAV|Instagram|Line\//i.test(UA);
+  const IS_ANDROID = /Android/i.test(UA);
+  const CHROME_INTENT = 'intent://' + location.host + location.pathname +
+    '#Intent;scheme=https;package=com.android.chrome;S.browser_fallback_url=' + encodeURIComponent(location.href) + ';end';
+
+  const $ = (id) => document.getElementById(id);
+  const state = { driver: null, photos: [], vehicles: [], clientId: '' };
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  // ---------- toast ----------
+  let toastTimer = null;
+  function toast(msg, isErr) {
+    const t = $('toast');
+    t.textContent = msg;
+    t.className = 'toast' + (isErr ? ' err' : '');
+    t.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { t.hidden = true; }, isErr ? 5000 : 3200);
+  }
+
+  // ---------- server ----------
+  // fetch POST with a text/plain body = a "simple" CORS request (no preflight); Apps Script answers JSON.
+  async function api(action, data, timeoutMs) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs || 45000);
+    try {
+      const res = await fetch(API, { method: 'POST', body: JSON.stringify(Object.assign({ action }, data || {})), signal: ctrl.signal });
+      const text = await res.text();
+      let json;
+      try { json = JSON.parse(text); } catch (e) { throw new Error('השרת לא ענה כמו שצריך. נסו שוב בעוד רגע.'); }
+      if (!json.ok) { const err = new Error(json.error || 'שגיאה'); err.server = true; throw err; }
+      return json;
+    } catch (e) {
+      if (e.name === 'AbortError') throw new Error('אין תגובה מהשרת. בדקו קליטה ונסו שוב.');
+      if (e instanceof TypeError) throw new Error('אין חיבור לאינטרנט. בדקו קליטה ונסו שוב.');
+      throw e;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  // Retry network failures (never retry a clear server "no", e.g. wrong employee number).
+  async function apiRetry(action, data, tries) {
+    let last;
+    for (let i = 0; i < (tries || 3); i++) {
+      try { return await api(action, data); } catch (e) { last = e; if (e.server) throw e; await sleep(1500 * (i + 1)); }
+    }
+    throw last;
+  }
+
+  // ---------- draft (survives any reload) ----------
+  function saveDraft() {
+    if (!state.driver) return;
+    const fields = {};
+    FIELDS.forEach((id) => { fields[id] = $(id).value; });
+    const draft = { driver: state.driver, vehicles: state.vehicles, clientId: state.clientId, fields, photos: state.photos, savedAt: Date.now() };
+    try { localStorage.setItem(DRAFT_KEY, JSON.stringify(draft)); }
+    catch (e) { try { localStorage.setItem(DRAFT_KEY, JSON.stringify(Object.assign({}, draft, { photos: [] }))); } catch (e2) { /* no storage */ } }
+  }
+  function loadDraft() {
+    try {
+      const d = JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null');
+      if (!d || !d.driver || Date.now() - (d.savedAt || 0) > 24 * 3600 * 1000) return null;
+      return d;
+    } catch (e) { return null; }
+  }
+  function clearDraft() { try { localStorage.removeItem(DRAFT_KEY); } catch (e) { /* no storage */ } }
+  let draftTimer = null;
+  const saveSoon = () => { clearTimeout(draftTimer); draftTimer = setTimeout(saveDraft, 600); };
+
+  // ---------- screens ----------
+  function show(which) {
+    $('loginCard').hidden = which !== 'login';
+    $('formCard').hidden = which !== 'form';
+    $('doneCard').hidden = which !== 'done';
+  }
+  function fillVehicles() {
+    $('vehicleList').innerHTML = state.vehicles.map((v) => '<option value="' + v + '">').join('');
+  }
+  function newClientId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
+  function startForm(resetFields) {
+    $('hello').textContent = 'שלום ' + state.driver.name;
+    if (resetFields) {
+      FIELDS.forEach((id) => { $(id).value = ''; });
+      if (state.driver.vehicle) $('vehicle').value = state.driver.vehicle;
+      state.photos = [];
+      state.clientId = newClientId();
+    }
+    fillVehicles();
+    renderSlots();
+    show('form');
+  }
+
+  async function login() {
+    const emp = $('emp').value.trim();
+    const pass = $('pass').value.trim();
+    if (!emp) return toast('הזינו מספר עובד', true);
+    const btn = $('loginBtn');
+    btn.disabled = true; btn.textContent = 'מתחבר...';
+    try {
+      const res = await apiRetry('login', { employeeId: emp, password: pass });
+      state.driver = res.driver;
+      state.vehicles = Array.isArray(res.vehicles) ? res.vehicles : [];
+      startForm(true);
+      saveDraft();
+    } catch (e) {
+      toast(e.message, true);
+    } finally {
+      btn.disabled = false; btn.textContent = 'כניסה';
+    }
+  }
+
+  function logout() {
+    clearDraft();
+    state.driver = null; state.photos = [];
+    $('pass').value = '';
+    show('login');
+  }
+
+  // ---------- photo slots ----------
+  const countIn = (key) => state.photos.filter((p) => p.slot === key).length;
+  function renderSlots() {
+    $('slots').innerHTML = SLOTS.map((s) => {
+      const mine = state.photos.map((p, i) => ({ p, i })).filter((x) => x.p.slot === s.key);
+      const full = mine.length >= s.max;
+      const thumbs = mine.map((x) =>
+        '<div class="thumb"><img src="' + (x.p.thumb || x.p.base64) + '" alt=""><button type="button" data-remove="' + x.i + '" aria-label="מחיקת תמונה">×</button></div>').join('');
+      return '<div class="slot' + (full ? ' done' : '') + '">' +
+        '<div class="slot-head"><strong>' + s.label + '</strong><span class="slot-count">' + mine.length + '/' + s.max + (full ? ' ✓' : '') + '</span></div>' +
+        (full ? '' : '<button type="button" class="btn primary wide" data-shoot="' + s.key + '">📷 צלם</button>') +
+        (thumbs ? '<div class="thumbs">' + thumbs + '</div>' : '') +
+        '</div>';
+    }).join('');
+  }
+  $('slots').addEventListener('click', (e) => {
+    const shoot = e.target.closest('[data-shoot]');
+    if (shoot) return openCamera(shoot.dataset.shoot);
+    const rm = e.target.closest('[data-remove]');
+    if (rm) {
+      state.photos.splice(Number(rm.dataset.remove), 1);
+      renderSlots(); saveDraft();
+    }
+  });
+
+  // Encode a drawable (video frame / bitmap / image) to the upload JPEG + a small preview.
+  function encode(source, w, h) {
+    const scale = Math.min(1, MAX_DIM / Math.max(w, h));
+    const W = Math.max(1, Math.round(w * scale)), H = Math.max(1, Math.round(h * scale));
+    const c = document.createElement('canvas');
+    c.width = W; c.height = H;
+    c.getContext('2d').drawImage(source, 0, 0, W, H);
+    const base64 = c.toDataURL('image/jpeg', 0.6);
+    const ts = 240 / Math.max(W, H);
+    const t = document.createElement('canvas');
+    t.width = Math.max(1, Math.round(W * ts)); t.height = Math.max(1, Math.round(H * ts));
+    t.getContext('2d').drawImage(c, 0, 0, t.width, t.height);
+    const thumb = t.toDataURL('image/jpeg', 0.6);
+    c.width = c.height = 0; t.width = t.height = 0;
+    return { base64, thumb };
+  }
+  function addPhoto(slot, enc) {
+    state.photos.push({ slot: slot.key, category: slot.label, base64: enc.base64, thumb: enc.thumb, type: 'image/jpeg', name: 'photo.jpg' });
+    renderSlots();
+    saveDraft();
+  }
+
+  // ---------- camera ----------
+  const cam = { stream: null, slot: null };
+  function camCount() { $('camCount').textContent = countIn(cam.slot.key) + '/' + cam.slot.max; }
+  function stopStream() {
+    if (cam.stream) cam.stream.getTracks().forEach((t) => t.stop());
+    cam.stream = null;
+    $('camVideo').srcObject = null;
+  }
+  function closeCamera() {
+    stopStream();
+    $('cam').hidden = true;
+    document.body.style.overflow = '';
+  }
+  function camFail(text) {
+    stopStream();
+    $('camHint').hidden = true;
+    $('shutter').disabled = true;
+    $('camMsgText').textContent = text;
+    $('camChrome').hidden = !(IN_APP && IS_ANDROID);
+    $('camMsg').hidden = false;
+  }
+  async function openCamera(key) {
+    const slot = SLOTS.find((s) => s.key === key);
+    if (!slot || countIn(key) >= slot.max) return;
+    cam.slot = slot;
+    $('camTitle').textContent = slot.label;
+    camCount();
+    $('camHint').innerHTML = slot.hint + '<br><small>אם מופיעה בקשת הרשאה למצלמה — לחצו <b>"אפשר"</b></small>';
+    $('camHint').hidden = false;
+    $('camMsg').hidden = true;
+    $('shutter').disabled = true;
+    $('cam').hidden = false;
+    document.body.style.overflow = 'hidden';
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      return camFail(IN_APP ? 'כאן בתוך וואטסאפ המצלמה לא זמינה. לחצו "פתיחה ב‑Chrome", או צלמו עם מצלמת הטלפון.' : 'המצלמה לא זמינה בדפדפן הזה. אפשר לצלם עם מצלמת הטלפון.');
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+      });
+      if ($('cam').hidden) { stream.getTracks().forEach((t) => t.stop()); return; } // closed while waiting
+      cam.stream = stream;
+      const track = stream.getVideoTracks()[0];
+      try { await track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }); } catch (e) { /* optional */ }
+      const v = $('camVideo');
+      v.srcObject = stream;
+      await v.play().catch(() => {});
+      setTimeout(() => { $('camHint').hidden = true; }, 2500);
+      $('shutter').disabled = false;
+    } catch (e) {
+      const denied = e && (e.name === 'NotAllowedError' || e.name === 'SecurityError');
+      camFail(denied
+        ? (IN_APP ? 'בתוך וואטסאפ אין גישה למצלמה. לחצו "פתיחה ב‑Chrome", או צלמו עם מצלמת הטלפון.'
+                  : 'לא אושרה גישה למצלמה. לחצו על ✕, ובפעם הבאה אשרו "אפשר". אפשר גם לצלם עם מצלמת הטלפון.')
+        : 'לא הצלחנו לפתוח את המצלמה. אפשר לצלם עם מצלמת הטלפון.');
+    }
+  }
+  function shoot() {
+    const v = $('camVideo');
+    if (!cam.stream || !v.videoWidth) return toast('המצלמה עוד נטענת, נסו שוב בעוד רגע', true);
+    const flash = document.createElement('div');
+    flash.className = 'flash';
+    document.body.appendChild(flash);
+    setTimeout(() => flash.remove(), 400);
+    try {
+      addPhoto(cam.slot, encode(v, v.videoWidth, v.videoHeight));
+    } catch (e) {
+      return toast('הצילום נכשל, נסו שוב', true);
+    }
+    if (countIn(cam.slot.key) >= cam.slot.max) {
+      closeCamera();
+      toast('✓ ' + cam.slot.label + ' נשמר');
+    } else {
+      camCount();
+      toast('✓ נשמר. צלמו את התמונה הבאה');
+    }
+  }
+  // Fallback when the in-page camera isn't available: the phone's camera app.
+  async function fromFile(file) {
+    if (!file) return;
+    try {
+      let enc;
+      if (typeof createImageBitmap === 'function') {
+        let bmp;
+        try { bmp = await createImageBitmap(file, { resizeWidth: MAX_DIM, resizeQuality: 'medium', imageOrientation: 'from-image' }); }
+        catch (e) { bmp = await createImageBitmap(file); }
+        enc = encode(bmp, bmp.width, bmp.height);
+        bmp.close();
+      } else {
+        enc = await new Promise((resolve, reject) => {
+          const url = URL.createObjectURL(file);
+          const img = new Image();
+          img.onload = () => { try { resolve(encode(img, img.naturalWidth, img.naturalHeight)); } catch (e) { reject(e); } URL.revokeObjectURL(url); };
+          img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('img')); };
+          img.src = url;
+        });
+      }
+      addPhoto(cam.slot, enc);
+      if (countIn(cam.slot.key) >= cam.slot.max) closeCamera(); else camCount();
+      toast('✓ התמונה נשמרה');
+    } catch (e) {
+      toast('לא הצלחנו לקרוא את התמונה, נסו שוב', true);
+    }
+  }
+
+  // ---------- submit ----------
+  function setProgress(pct, text) { $('progressFill').style.width = pct + '%'; $('progressText').textContent = text; }
+  async function submit() {
+    if (!state.driver) return logout();
+    const vehicle = $('vehicle').value.replace(/[\s-]/g, '');
+    const digits = vehicle.replace(/\D/g, '');
+    if (!state.vehicles.includes(vehicle) && (digits.length < 5 || digits.length > 9)) return toast('בחרו מספר רכב מהרשימה', true);
+    const btn = $('submitBtn');
+    btn.disabled = true; btn.textContent = 'שולח...';
+    $('progress').hidden = false;
+    const id = state.driver.id;
+    const photos = state.photos.slice();
+    try {
+      setProgress(5, 'פותח דיווח...');
+      const begin = await apiRetry('begin', { payload: {
+        employeeId: id, password: id, clientId: state.clientId, vehicle,
+        notes: $('notes').value, defects: $('defects').value, km: $('km').value.trim(), washDate: $('washDate').value,
+        photoCount: photos.length,
+      } });
+      for (let i = 0; i < photos.length; i++) {
+        setProgress(Math.round(10 + (i / photos.length) * 85), 'מעלה תמונה ' + (i + 1) + ' מתוך ' + photos.length + '...');
+        const p = photos[i];
+        await apiRetry('photo', { inspectionId: begin.inspectionId, employeeId: id, password: id, index: i,
+          photo: { base64: p.base64, type: p.type, name: p.name, category: p.category } }, 4);
+      }
+      setProgress(100, 'הושלם!');
+      clearDraft();
+      $('doneMsg').textContent = state.driver.name + ' · רכב ' + vehicle + ' · ' + (photos.length ? photos.length + ' תמונות' : 'ללא תמונות');
+      setTimeout(() => { $('progress').hidden = true; setProgress(0, ''); show('done'); }, 400);
+    } catch (e) {
+      $('progress').hidden = true;
+      toast(e.message + ' הדיווח נשמר בטלפון — אפשר ללחוץ שוב "שליחה".', true);
+    } finally {
+      btn.disabled = false; btn.textContent = 'שליחת הדיווח';
+    }
+  }
+
+  // ---------- wiring ----------
+  $('loginBtn').addEventListener('click', login);
+  ['emp', 'pass'].forEach((id) => $(id).addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); login(); } }));
+  $('logoutBtn').addEventListener('click', logout);
+  $('submitBtn').addEventListener('click', submit);
+  $('anotherBtn').addEventListener('click', () => { startForm(true); saveDraft(); });
+  $('camClose').addEventListener('click', closeCamera);
+  $('shutter').addEventListener('click', shoot);
+  $('camFile').addEventListener('change', (e) => { const f = e.target.files && e.target.files[0]; e.target.value = ''; fromFile(f); });
+  FIELDS.forEach((id) => { $(id).addEventListener('input', saveSoon); $(id).addEventListener('change', saveDraft); });
+  $('openChrome').href = CHROME_INTENT;
+  $('camChrome').href = CHROME_INTENT;
+  $('inAppNotice').hidden = !(IN_APP && IS_ANDROID);
+  // Release the camera whenever the page is hidden (screen off, app switch).
+  document.addEventListener('visibilitychange', () => { if (document.hidden && !$('cam').hidden) closeCamera(); });
+
+  // Resume a saved session (e.g. after the phone reloaded the page).
+  const d = loadDraft();
+  if (d) {
+    state.driver = d.driver;
+    state.vehicles = Array.isArray(d.vehicles) ? d.vehicles : [];
+    state.photos = Array.isArray(d.photos) ? d.photos : [];
+    state.clientId = d.clientId || newClientId();
+    FIELDS.forEach((id) => { if (d.fields && d.fields[id] != null) $(id).value = d.fields[id]; });
+    startForm(false);
+    if (state.photos.length) toast('המשכנו מאיפה שעצרת ✓ ' + state.photos.length + ' תמונות נשמרו');
+    // refresh the live vehicle list quietly
+    api('login', { employeeId: d.driver.id, password: d.driver.id }).then((r) => {
+      if (Array.isArray(r.vehicles) && r.vehicles.length) { state.vehicles = r.vehicles; fillVehicles(); saveDraft(); }
+    }).catch(() => {});
+  } else {
+    show('login');
+  }
+
+  // Test hooks (used only by automated checks).
+  window.__fleet = { state, encode, addPhoto, SLOTS, api };
+})();
+</script>
+</body>
+</html>
